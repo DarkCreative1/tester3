@@ -16,7 +16,7 @@
   "author": "Your Name",
   "license": "ISC",
   "dependencies": {
-    "discord-webhook-node": "^2.0.1", <--- BURAYI DEĞİŞTİRİN
+    "discord-webhook-node": "^1.1.8", <--- BURAYI DEĞİŞTİRİN
     "fs": "^0.0.1-security"
   }
 }
