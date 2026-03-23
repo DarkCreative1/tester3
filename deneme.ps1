@@ -1,10 +1,9 @@
 [CmdletBinding()]
-param(
-    [switch]$BypassAdmin = $true
-)
+param()
 
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$BypassAdmin = $true
 
 function Invoke-Spicetify {
     param(
@@ -12,14 +11,14 @@ function Invoke-Spicetify {
         [string[]]$Arguments
     )
 
-    $argsList = @()
+    $argList = @()
     if ($BypassAdmin) {
-        $argsList += "--bypass-admin"
+        $argList += "--bypass-admin"
     }
-    $argsList += $Arguments
+    $argList += $Arguments
 
-    Write-Host ("spicetify " + ($argsList -join ' ')) -ForegroundColor DarkGray
-    & spicetify @argsList
+    Write-Host ("spicetify " + ($argList -join ' ')) -ForegroundColor DarkGray
+    & spicetify @argList
     return $LASTEXITCODE
 }
 
@@ -29,14 +28,14 @@ function Invoke-SpicetifyCapture {
         [string[]]$Arguments
     )
 
-    $argsList = @()
+    $argList = @()
     if ($BypassAdmin) {
-        $argsList += "--bypass-admin"
+        $argList += "--bypass-admin"
     }
-    $argsList += $Arguments
+    $argList += $Arguments
 
-    Write-Host ("spicetify " + ($argsList -join ' ')) -ForegroundColor DarkGray
-    $output = & spicetify @argsList 2>&1 | Out-String
+    Write-Host ("spicetify " + ($argList -join ' ')) -ForegroundColor DarkGray
+    $output = & spicetify @argList 2>&1 | Out-String
     return @{
         Output   = $output.Trim()
         ExitCode = $LASTEXITCODE
@@ -44,87 +43,78 @@ function Invoke-SpicetifyCapture {
 }
 
 function Stop-SpotifyProcesses {
-    Write-Host 'Spotify kapatılıyor...' -ForegroundColor Cyan
-
-    $spotifyProcesses = Get-Process -Name "Spotify" -ErrorAction SilentlyContinue
-    if ($spotifyProcesses) {
-        foreach ($proc in $spotifyProcesses) {
+    $procs = Get-Process -Name "Spotify" -ErrorAction SilentlyContinue
+    if ($procs) {
+        Write-Host "Spotify kapatılıyor..." -ForegroundColor Cyan
+        foreach ($proc in $procs) {
             try {
                 Stop-Process -Id $proc.Id -Force -ErrorAction Stop
             }
             catch {
-                Write-Host "Spotify process kapatılamadı: $($_.Exception.Message)" -ForegroundColor Yellow
+                Write-Host "Spotify kapatılamadı: $($_.Exception.Message)" -ForegroundColor Yellow
             }
         }
-        Start-Sleep -Seconds 2
+        Start-Sleep -Seconds 3
     }
 }
 
 function Ensure-SpicetifyInstalled {
-    if (-not (Get-Command -Name 'spicetify' -ErrorAction SilentlyContinue)) {
-        Write-Host 'Spicetify bulunamadı, kuruluyor...' -ForegroundColor Cyan
-        Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/spicetify/cli/main/install.ps1' -UseBasicParsing |
-            Invoke-Expression
+    if (-not (Get-Command spicetify -ErrorAction SilentlyContinue)) {
+        Write-Host "Spicetify bulunamadı, kuruluyor..." -ForegroundColor Cyan
+        Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/spicetify/cli/main/install.ps1" | Invoke-Expression
     }
 }
 
-function Get-SpicetifyUserDataPath {
+function Get-SpicePath {
     $result = Invoke-SpicetifyCapture "path" "userdata"
-
-    if ($result.ExitCode -eq 0 -and $result.Output) {
+    if ($result.ExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($result.Output)) {
         return $result.Output
     }
-
-    $fallback = Join-Path $env:APPDATA 'spicetify'
-    return $fallback
+    return (Join-Path $env:APPDATA "spicetify")
 }
 
-Write-Host 'Kurulum başlatılıyor...' -ForegroundColor Cyan
+Write-Host "Kurulum başlatılıyor..." -ForegroundColor Cyan
 
 Ensure-SpicetifyInstalled
 
-$spiceUserDataPath = Get-SpicetifyUserDataPath
-
+$spiceUserDataPath = Get-SpicePath
 if (-not (Test-Path $spiceUserDataPath)) {
-    New-Item -Path $spiceUserDataPath -ItemType Directory -Force | Out-Null
+    New-Item -ItemType Directory -Path $spiceUserDataPath -Force | Out-Null
 }
 
-$marketAppPath   = Join-Path $spiceUserDataPath 'CustomApps\marketplace'
-$marketThemePath = Join-Path $spiceUserDataPath 'Themes\marketplace'
-$marketZipPath   = Join-Path $marketAppPath 'marketplace.zip'
-$extractPath     = Join-Path $marketAppPath 'marketplace-dist'
+$marketAppPath   = Join-Path $spiceUserDataPath "CustomApps\marketplace"
+$marketThemePath = Join-Path $spiceUserDataPath "Themes\marketplace"
+$marketZipPath   = Join-Path $marketAppPath "marketplace.zip"
+$extractPath     = Join-Path $marketAppPath "extract"
 
-Write-Host 'Eski Marketplace dosyaları temizleniyor...' -ForegroundColor Cyan
-Remove-Item -Path $marketAppPath -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path $marketThemePath -Recurse -Force -ErrorAction SilentlyContinue
+Write-Host "Eski dosyalar temizleniyor..." -ForegroundColor Cyan
+Remove-Item $marketAppPath -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item $marketThemePath -Recurse -Force -ErrorAction SilentlyContinue
 
-New-Item -Path $marketAppPath -ItemType Directory -Force | Out-Null
-New-Item -Path $marketThemePath -ItemType Directory -Force | Out-Null
+New-Item -ItemType Directory -Path $marketAppPath -Force | Out-Null
+New-Item -ItemType Directory -Path $marketThemePath -Force | Out-Null
 
-Write-Host 'Marketplace indiriliyor...' -ForegroundColor Cyan
-Invoke-WebRequest `
-    -Uri 'https://github.com/spicetify/marketplace/releases/latest/download/marketplace.zip' `
-    -UseBasicParsing `
+Write-Host "Marketplace indiriliyor..." -ForegroundColor Cyan
+Invoke-WebRequest -UseBasicParsing `
+    -Uri "https://github.com/spicetify/marketplace/releases/latest/download/marketplace.zip" `
     -OutFile $marketZipPath
 
-Write-Host 'Zip açılıyor...' -ForegroundColor Cyan
+Write-Host "Arşiv açılıyor..." -ForegroundColor Cyan
 Expand-Archive -Path $marketZipPath -DestinationPath $extractPath -Force
 
-$innerItems = Get-ChildItem -Path $extractPath -Force -ErrorAction SilentlyContinue
-if ($innerItems) {
-    Move-Item -Path (Join-Path $extractPath '*') -Destination $marketAppPath -Force
+Get-ChildItem -Path $extractPath -Force | ForEach-Object {
+    Move-Item -Path $_.FullName -Destination $marketAppPath -Force
 }
 
-Remove-Item -Path $extractPath -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path $marketZipPath -Force -ErrorAction SilentlyContinue
+Remove-Item $extractPath -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item $marketZipPath -Force -ErrorAction SilentlyContinue
 
-Write-Host 'Placeholder theme indiriliyor...' -ForegroundColor Cyan
-Invoke-WebRequest `
-    -Uri 'https://raw.githubusercontent.com/spicetify/marketplace/main/resources/color.ini' `
-    -UseBasicParsing `
-    -OutFile (Join-Path $marketThemePath 'color.ini')
+Write-Host "Theme dosyası indiriliyor..." -ForegroundColor Cyan
+Invoke-WebRequest -UseBasicParsing `
+    -Uri "https://raw.githubusercontent.com/spicetify/marketplace/main/resources/color.ini" `
+    -OutFile (Join-Path $marketThemePath "color.ini")
 
-Write-Host 'Spicetify config ayarlanıyor...' -ForegroundColor Cyan
+Write-Host "Config ayarlanıyor..." -ForegroundColor Cyan
 Invoke-Spicetify "config" "custom_apps" "spicetify-marketplace-" "-q" | Out-Null
 Invoke-Spicetify "config" "custom_apps" "marketplace" | Out-Null
 Invoke-Spicetify "config" "inject_css" "1" "replace_colors" "1" | Out-Null
@@ -132,25 +122,22 @@ Invoke-Spicetify "config" "current_theme" "marketplace" | Out-Null
 
 Stop-SpotifyProcesses
 
-Write-Host 'Backup oluşturuluyor...' -ForegroundColor Cyan
-$backupResult = Invoke-SpicetifyCapture "backup"
-Write-Host $backupResult.Output
-
-if ($backupResult.ExitCode -ne 0) {
-    Write-Host 'Backup başarısız oldu.' -ForegroundColor Red
+Write-Host "Backup alınıyor..." -ForegroundColor Cyan
+$backup = Invoke-SpicetifyCapture "backup"
+if ($backup.Output) { Write-Host $backup.Output }
+if ($backup.ExitCode -ne 0) {
+    Write-Host "Backup başarısız." -ForegroundColor Red
     exit 1
 }
 
 Stop-SpotifyProcesses
 
-Write-Host 'Apply çalıştırılıyor...' -ForegroundColor Cyan
-$applyResult = Invoke-SpicetifyCapture "apply"
-Write-Host $applyResult.Output
-
-if ($applyResult.ExitCode -ne 0) {
-    Write-Host 'Apply başarısız oldu.' -ForegroundColor Red
+Write-Host "Apply yapılıyor..." -ForegroundColor Cyan
+$apply = Invoke-SpicetifyCapture "apply"
+if ($apply.Output) { Write-Host $apply.Output }
+if ($apply.ExitCode -ne 0) {
+    Write-Host "Apply başarısız." -ForegroundColor Red
     exit 1
 }
 
-Write-Host 'Kurulum tamamlandı.' -ForegroundColor Green
-Write-Host 'Şimdi Spotify açıp kontrol et.' -ForegroundColor Green
+Write-Host "Tamamlandı." -ForegroundColor Green
